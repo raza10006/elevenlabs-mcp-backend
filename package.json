@@ -1,0 +1,41 @@
+{
+  "name": "elevenlabs-mcp-backend",
+  "version": "1.0.0",
+  "description": "Production-grade MCP server backend for ElevenLabs Agents with Supabase integration",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:bg": "node dist/server.js &",
+    "dev": "tsx watch src/server.ts",
+    "type-check": "tsc --noEmit",
+    "kill-port": "lsof -ti:3000 | xargs kill -9 2>/dev/null || echo 'No process on port 3000'",
+    "restart": "npm run kill-port && npm run build && npm start",
+    "restart:bg": "npm run kill-port && npm run build && npm run start:bg"
+  },
+  "keywords": [
+    "mcp",
+    "elevenlabs",
+    "supabase",
+    "voice-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@supabase/supabase-js": "^2.39.3",
+    "dotenv": "^16.4.1",
+    "fastify": "^4.26.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
