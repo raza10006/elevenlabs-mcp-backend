@@ -35,12 +35,18 @@ function extractBearerToken(authHeader: string | undefined): string | null {
 
 /**
  * Middleware to validate Bearer token authentication
+ * Supports both "Authorization" and "Authorization2" headers
  */
 export async function requireAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  // Check both Authorization and Authorization2 headers (case-insensitive)
+  const authHeader = 
+    request.headers.authorization || 
+    request.headers.authorization2 ||
+    (request.headers as any)['Authorization'] ||
+    (request.headers as any)['Authorization2'];
   const token = extractBearerToken(authHeader);
 
   if (!token) {
