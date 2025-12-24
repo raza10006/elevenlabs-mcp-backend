@@ -63,10 +63,18 @@ export async function lookupOrder(
   try {
     contextLogger.debug("Querying Supabase for order", { orderId });
 
+    // Handle both string and numeric order IDs
+    // orders_trendyol uses int8 for order_id, so try to convert if needed
+    let queryOrderId: string | number = orderId;
+    const numericOrderId = parseInt(orderId, 10);
+    if (!isNaN(numericOrderId)) {
+      queryOrderId = numericOrderId; // Use numeric for int8 column
+    }
+
     const { data, error } = await supabase
-      .from("orders")
+      .from("orders_trendyol")
       .select("*")
-      .eq("order_id", orderId)
+      .eq("order_id", queryOrderId)
       .single();
 
     if (error) {
