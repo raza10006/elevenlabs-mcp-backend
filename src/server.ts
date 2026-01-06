@@ -95,9 +95,6 @@ fastify.post("/mcp", async (request, reply) => {
     return; // Auth failed, response already sent
   }
 
-  const requestId = request.id as string;
-  const contextLogger = logger.withContext({ requestId });
-
   try {
     // Parse request body
     let body: unknown;
