@@ -100,11 +100,11 @@ export async function lookupOrder(
     contextLogger.debug("Querying Supabase for order", { orderId });
 
     // Handle both string and numeric order IDs
-    // orders_trendyol uses int8 for order_id, so try to convert if needed
+    // orders_trendyol uses text for order_id, but we support both formats
     let queryOrderId: string | number = orderId;
     const numericOrderId = parseInt(orderId, 10);
     if (!isNaN(numericOrderId)) {
-      queryOrderId = numericOrderId; // Use numeric for int8 column
+      queryOrderId = numericOrderId; // Try numeric if it's a number
     }
 
     // Retry logic for network failures (up to 3 attempts)
