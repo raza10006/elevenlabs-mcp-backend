@@ -53,10 +53,18 @@ export async function requireAuth(
     logger.warn("Missing or invalid Authorization header", {
       path: request.url,
       method: request.method,
+      headers: Object.keys(request.headers).filter(h => h.toLowerCase().includes('auth')),
     });
     await reply.status(401).send({
-      error: "Unauthorized",
-      message: "Missing or invalid Authorization header. Expected: Bearer <token>",
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32000,
+        message: "Unauthorized: Missing or invalid Authorization header. Expected: Bearer <token>",
+        data: {
+          hint: "Ensure you're sending 'Authorization: Bearer <MCP_SECRET>' header",
+        },
+      },
     });
     return;
   }
@@ -84,11 +92,21 @@ export async function requireAuth(
       expectedLength: trimmedExpected.length,
       tokenStart: trimmedToken.substring(0, 15),
       expectedStart: trimmedExpected.substring(0, 15),
+      tokensMatch: trimmedToken === trimmedExpected,
       // Don't log full tokens, but log starts for debugging
     });
     await reply.status(403).send({
-      error: "Forbidden",
-      message: "Invalid authentication token",
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32000,
+        message: "Forbidden: Invalid authentication token",
+        data: {
+          hint: "The MCP_SECRET token does not match. Verify the token in ElevenLabs matches the MCP_SECRET in Railway environment variables.",
+          tokenLength: trimmedToken.length,
+          expectedLength: trimmedExpected.length,
+        },
+      },
     });
     return;
   }

@@ -58,8 +58,37 @@ fastify.get("/debug/env", async (_request, _reply) => {
   };
 });
 
+// Test endpoint to verify MCP endpoint is accessible (no auth required for testing)
+fastify.post("/mcp/test", async (request, reply) => {
+  return reply.send({
+    message: "MCP endpoint is accessible",
+    method: request.method,
+    hasAuthHeader: !!(request.headers.authorization || request.headers.authorization2),
+    contentType: request.headers['content-type'],
+    bodyType: typeof request.body,
+  });
+});
+
+// Handle OPTIONS for CORS preflight on /mcp
+fastify.options("/mcp", async (_request, reply) => {
+  return reply.status(200).send();
+});
+
 // MCP JSON-RPC endpoint (requires auth)
 fastify.post("/mcp", async (request, reply) => {
+  const requestId = request.id as string;
+  const contextLogger = logger.withContext({ requestId });
+  
+  // Log incoming request for debugging
+  contextLogger.debug("Incoming MCP request", {
+    method: request.method,
+    headers: {
+      hasAuth: !!request.headers.authorization || !!request.headers.authorization2,
+      contentType: request.headers['content-type'],
+      origin: request.headers.origin,
+    },
+  });
+  
   // Check authentication
   await requireAuth(request, reply);
   if (reply.sent) {
@@ -232,10 +261,13 @@ async function start() {
       });
     }
     
-    // Register CORS plugin
+    // Register CORS plugin with better configuration for MCP
     await fastify.register(cors, {
       origin: true, // Allow all origins (adjust for production)
       credentials: true,
+      methods: ['GET', 'POST', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Authorization2'],
+      exposedHeaders: ['Content-Type'],
     });
     
     const address = await fastify.listen({
