@@ -26,6 +26,7 @@ function getSupabaseClient(): SupabaseClient {
   }
 
   // Initialize Supabase client with service role key (bypasses RLS)
+  // Add network configuration for Railway deployment
   supabaseClient = createClient(
     SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY,
@@ -33,6 +34,41 @@ function getSupabaseClient(): SupabaseClient {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
+      },
+      global: {
+        // Use native fetch with better error handling for Railway
+        fetch: (url, options: any = {}) => {
+          // Create abort controller for timeout (compatible with Node.js 18+)
+          const timeoutController = new AbortController();
+          const timeoutId = setTimeout(() => timeoutController.abort(), 30000); // 30 second timeout
+          
+          // Combine with existing signal if provided
+          let finalSignal = timeoutController.signal;
+          if (options.signal) {
+            const combinedController = new AbortController();
+            options.signal.addEventListener('abort', () => combinedController.abort());
+            timeoutController.signal.addEventListener('abort', () => combinedController.abort());
+            finalSignal = combinedController.signal;
+          }
+          
+          return fetch(url, {
+            ...options,
+            signal: finalSignal,
+          }).then((response) => {
+            clearTimeout(timeoutId);
+            return response;
+          }).catch((error: any) => {
+            clearTimeout(timeoutId);
+            // Provide better error messages for network failures
+            if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+              throw new Error(`Network request timeout: Unable to reach Supabase at ${SUPABASE_URL}`);
+            }
+            if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+              throw new Error(`Network connection failed: Unable to connect to Supabase. Please check your SUPABASE_URL (${SUPABASE_URL ? 'set' : 'not set'}) and network connectivity.`);
+            }
+            throw error;
+          });
+        },
       },
     }
   );
@@ -71,11 +107,68 @@ export async function lookupOrder(
       queryOrderId = numericOrderId; // Use numeric for int8 column
     }
 
-    const { data, error } = await supabase
-      .from("orders_trendyol")
-      .select("*")
-      .eq("order_id", queryOrderId)
-      .single();
+    // Retry logic for network failures (up to 3 attempts)
+    let lastError: any = null;
+    let data: any = null;
+    let error: any = null;
+    
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const result = await supabase
+          .from("orders_trendyol")
+          .select("*")
+          .eq("order_id", queryOrderId)
+          .single();
+        
+        data = result.data;
+        error = result.error;
+        
+        // If successful or non-network error, break retry loop
+        if (!error || error.code === "PGRST116") {
+          break;
+        }
+        
+        // If it's a network error, retry
+        if (attempt < 3 && (
+          error.message?.includes('fetch failed') ||
+          error.message?.includes('ECONNREFUSED') ||
+          error.message?.includes('timeout') ||
+          error.message?.includes('network')
+        )) {
+          contextLogger.warn(`Network error on attempt ${attempt}, retrying...`, {
+            errorMessage: error.message,
+            attempt,
+          });
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          lastError = error;
+          continue;
+        }
+        
+        // Non-retryable error, break
+        break;
+      } catch (networkError: any) {
+        // Catch fetch/network errors that might not be in error object
+        if (attempt < 3 && (
+          networkError.message?.includes('fetch failed') ||
+          networkError.message?.includes('ECONNREFUSED') ||
+          networkError.message?.includes('timeout') ||
+          networkError.name === 'AbortError' ||
+          networkError.name === 'TimeoutError'
+        )) {
+          contextLogger.warn(`Network exception on attempt ${attempt}, retrying...`, {
+            errorMessage: networkError.message,
+            errorName: networkError.name,
+            attempt,
+          });
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          lastError = networkError;
+          continue;
+        }
+        // Re-throw if not retryable
+        throw networkError;
+      }
+    }
 
     if (error) {
       // Handle "not found" case (Supabase returns PGRST116 when no rows found)
@@ -90,7 +183,19 @@ export async function lookupOrder(
         errorMessage: error.message,
         // Do not log error.details or error.hint as they might contain sensitive info
       });
+      
+      // Provide more helpful error messages
+      if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+        throw new Error(`Network connection failed: Unable to connect to Supabase database. Please verify SUPABASE_URL is correct and the database is accessible.`);
+      }
+      
       throw new Error(`Database query failed: ${error.message}`);
+    }
+    
+    // Handle case where we got a network exception after retries
+    if (lastError && !data) {
+      contextLogger.error("Network error after retries", lastError, { orderId });
+      throw new Error(`Network connection failed after retries: ${lastError.message || 'Unable to connect to Supabase'}`);
     }
 
     if (!data) {

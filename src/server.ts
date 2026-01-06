@@ -23,6 +23,21 @@ const fastify = Fastify({
   genReqId: () => `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
 });
 
+// Root endpoint (no auth required)
+fastify.get("/", async (_request, _reply) => {
+  return {
+    service: "elevenlabs-mcp-backend",
+    version: "1.0.0",
+    status: "online",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: "/health",
+      mcp: "/mcp (POST, requires auth)",
+      lookupOrder: "/lookup-order (POST, requires auth)",
+    },
+  };
+});
+
 // Health check endpoint (no auth required)
 fastify.get("/health", async (_request, _reply) => {
   return {
@@ -178,11 +193,44 @@ async function start() {
       logger.error("MCP_SECRET not found in environment variables");
       throw new Error("MCP_SECRET environment variable is required");
     }
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
     logger.info("Environment variables loaded", {
       hasMcpSecret: !!mcpSecret,
       mcpSecretLength: mcpSecret.length,
-      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseUrl: !!supabaseUrl,
+      hasSupabaseKey: !!supabaseKey,
+      supabaseUrlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : "not set",
     });
+    
+    // Test Supabase connection on startup
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const { supabase } = await import("./supabase.js");
+        // Try a simple query to test connection
+        const { error } = await supabase.from("orders_trendyol").select("order_id").limit(1);
+        if (error && error.code !== "PGRST116") {
+          logger.warn("Supabase connection test failed", {
+            errorCode: error.code,
+            errorMessage: error.message,
+            note: "This may be a network issue. The server will continue but queries may fail.",
+          });
+        } else {
+          logger.info("Supabase connection test successful");
+        }
+      } catch (error: any) {
+        logger.warn("Supabase connection test error", {
+          errorMessage: error.message,
+          note: "This may be a network issue. The server will continue but queries may fail.",
+        });
+      }
+    } else {
+      logger.warn("Supabase credentials not fully configured", {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!supabaseKey,
+      });
+    }
     
     // Register CORS plugin
     await fastify.register(cors, {
